@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EM Wave – Vacuum (left) vs Attenuating, Slower Medium (right)</title>
+  <style>
+    :root {
+      --ui-bg: rgba(255,255,255,0.8);
+      --ui-border: rgba(0,0,0,0.1);
+      --blue: #0b5fff;
+    }
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    body { 
+		display: grid; 
+		grid-template-rows: auto 1fr; 
+		background: radial-gradient(1000px 600px at 70% 40%, #f5f7fb, #e9eef6); 
+		overflow:hidden;
+	}
+    
+	header {
+      display: flex; gap: 1rem; align-items: center; padding: .6rem 1rem; backdrop-filter: blur(6px);
+      background: var(--ui-bg); border-bottom: 1px solid var(--ui-border);
+      position: sticky; top: 0; z-index: 2; flex-wrap: wrap;
+    }
+    .group { display: inline-flex; align-items: center; gap: .5rem; padding: .25rem .6rem; border: 1px solid var(--ui-border); border-radius: 999px; background: white; }
+    .group label { font-size: .85rem; color: #2d3436; }
+    .group input[type="range"] { width: 160px; }
+    
+	canvas { 
+		width: 100%; 
+		height: 100%; 
+		display: block;
+		min-height:0;
+		min-width:0;		
+	}
+		
+    .legend { margin-left: auto; display: flex; align-items: center; gap: .5rem; font-size: .9rem; color:#1f2937; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); }
+    .swatch { display:inline-flex; align-items:center; gap:.35rem; padding:0 .4rem; border-radius:8px; background:rgba(0,0,0,0.04) }
+    .note { font-size: .8rem; opacity: .8; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="group">
+      <label>Amplitude <span class="note" id="ampVal"></span></label>
+      <input id="amp" type="range" min="20" max="200" value="180" />
+    </div>
+    <div class="group">
+      <label>Frequency <span class="note" id="freqVal"></span></label>
+      <input id="freq" type="range" min="0.20" max="1.00" step="0.01" value="0.50" />
+    </div>
+    <div class="group">
+      <label>Refractive index n <span class="note" id="nVal"></span></label>
+      <input id="n" type="range" min="1.00" max="3.00" step="0.01" value="2.60" />
+    </div>
+    <div class="group">
+      <label>Attenuation α <span class="note" id="attVal"></span></label>
+      <input id="att" type="range" min="0.000" max="0.015" step="0.0005" value="0.002" />
+    </div>
+    <div class="legend" title="Legend">
+      <div class="dot"></div> E-field arrows
+      <span class="swatch" title="Medium region" style="margin-left:.6rem">
+        <span style="width:12px;height:12px;border-radius:3px;background:rgba(255,140,0,0.10);border:1px solid rgba(255,140,0,0.35)"></span>
+        <span class="note">Medium (n≥1, attenuating)</span>
+      </span>
+    </div>
+  </header>
+
+  <canvas id="c"></canvas>
+
+  <script>
+  (()=> {
+    // Left (vacuum) phase speed; right speed = SPEED / n
+    const SPEED = 170; // px/s
+    const FIXED_DENSITY = 180;
+
+    const canvas  = document.getElementById('c');
+    const ctx     = canvas.getContext('2d');
+
+    const ampSlider  = document.getElementById('amp');
+    const freqSlider = document.getElementById('freq');
+    const nSlider    = document.getElementById('n');
+    const attSlider  = document.getElementById('att');
+
+    const ampVal  = document.getElementById('ampVal');
+    const freqVal = document.getElementById('freqVal');
+    const nVal    = document.getElementById('nVal');
+    const attVal  = document.getElementById('attVal');
+
+    function fmt(v){ return Math.round(Number(v)); }
+    function fmt2(v){ return (Math.round(Number(v)*100)/100).toFixed(2); }
+    function fmt3(v){ return (Math.round(Number(v)*1000)/1000).toFixed(3); }
+
+    function updateLabels(){
+      const f = Number(freqSlider.value);
+      const n = Number(nSlider.value);
+      const v1 = SPEED;
+      const v2 = SPEED / n;
+      const lambda1 = v1 / f;
+      const lambda2 = v2 / f;
+      const a = Number(attSlider.value);
+
+      ampVal.textContent  = `(${fmt(ampSlider.value)} px)`;
+      freqVal.textContent = `(${fmt2(f)} Hz)`;
+      nVal.textContent    = `(${fmt2(n)})`;
+      attVal.textContent  = `(${fmt3(a)} px⁻¹)`;
+    }
+
+    function resize(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const rect = canvas.getBoundingClientRect();
+      canvas.width  = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    window.addEventListener('resize', resize);
+
+    function drawArrow(x, y0, yTip){
+      const head = 8, shaft = 2;
+      const dir = Math.sign(y0 - yTip) || 1;
+      ctx.lineWidth = shaft;
+      ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, yTip); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, yTip);
+      ctx.lineTo(x - 6, yTip + dir*head);
+      ctx.lineTo(x + 6, yTip + dir*head);
+      ctx.closePath(); ctx.fill();
+    }
+
+    function drawAxis(y){
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 1; ctx.setLineDash([6,6]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.clientWidth, y); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
+    }
+
+    function drawPropagationArrow(y){
+      const w = canvas.clientWidth, x0 = w - 120, x1 = w - 20;
+      ctx.save();
+      ctx.strokeStyle = '#0b5fff'; ctx.fillStyle = '#0b5fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x1-10, y-5); ctx.lineTo(x1-10, y+5); ctx.closePath(); ctx.fill();
+      ctx.font = '12px system-ui, sans-serif'; ctx.fillText('Propagation (x)', x0 - 5, y - 8);
+      ctx.restore();
+    }
+
+    function overlayMedium(xMid){
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,140,0,0.10)';
+      ctx.fillRect(xMid, 0, w - xMid, h);
+      ctx.strokeStyle = 'rgba(255,140,0,0.55)';
+      ctx.lineWidth = 2; ctx.setLineDash([5,5]);
+      ctx.beginPath(); ctx.moveTo(xMid, 0); ctx.lineTo(xMid, h); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.fillText('Vacuum', Math.max(12, xMid*0.5 - 30), 22);
+      ctx.fillText('Medium (lossy, n)', xMid + 12, 22);
+      ctx.restore();
+    }
+
+    // Amplitude profile with attenuation for x >= xMid
+    function amplitudeAt(x, xMid, A0, alpha){
+      if (x < xMid) return A0;
+      const dx = x - xMid;
+      return A0 * Math.exp(-alpha * dx);
+    }
+
+    let t0 = performance.now();
+
+    function animate(now){
+      const t = (now - t0) / 1000;
+      const A0 = Number(ampSlider.value);
+      const f  = Number(freqSlider.value);
+      const n  = Number(nSlider.value);
+      const a  = Number(attSlider.value);
+
+      const v1 = SPEED;
+      const v2 = SPEED / n;
+
+      const lambda1 = v1 / f;
+      const lambda2 = v2 / f;
+
+      const k1 = (2 * Math.PI) / lambda1;
+      const k2 = (2 * Math.PI) / lambda2;
+      const omega = 2 * Math.PI * f;
+
+      const w = canvas.clientWidth, h = canvas.clientHeight, midY = Math.floor(h * 0.55) - 150;
+      const xMid = Math.floor(w * 0.5);
+      const density = FIXED_DENSITY;
+
+      ctx.clearRect(0,0,w,h);
+      overlayMedium(xMid);
+      drawAxis(midY);
+
+      // Wave trace (phase-continuous at interface):
+      // left:  sin(k1*x - ωt)
+      // right: sin(k2*(x - xMid) + k1*xMid - ωt)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(11,95,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for(let x=0; x<=w; x+=2){
+        const A = amplitudeAt(x, xMid, A0, a);
+        const phase = (x < xMid)
+          ? (k1 * x - omega * t)
+          : (k2 * (x - xMid) + k1 * xMid - omega * t);
+        const tip = midY - A * Math.sin(phase);
+        if(x===0) ctx.moveTo(x, tip); else ctx.lineTo(x, tip);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // Arrows with local amplitude and correct phase
+      ctx.save();
+      ctx.strokeStyle = '#0b5fff'; ctx.fillStyle = '#0b5fff';
+      const step = Math.max(16, Math.floor(w / density));
+      for(let x = 20; x <= w-20; x += step){
+        const A = amplitudeAt(x, xMid, A0, a);
+        const phase = (x < xMid)
+          ? (k1 * x - omega * t)
+          : (k2 * (x - xMid) + k1 * xMid - omega * t);
+        const tip = midY - A * Math.sin(phase);
+        drawArrow(x, midY, tip);
+      }
+      ctx.restore();
+
+      // Labels
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.font = '14px system-ui, sans-serif';
+      drawPropagationArrow(midY + 40);
+      ctx.textAlign = 'center';
+      ctx.fillText('Interface', xMid, midY + 70);
+      ctx.textAlign = 'start';
+      ctx.restore();
+
+      requestAnimationFrame(animate);
+    }
+
+    updateLabels();
+    ampSlider.addEventListener('input', updateLabels);
+    freqSlider.addEventListener('input', updateLabels);
+    nSlider.addEventListener('input', updateLabels);
+    attSlider.addEventListener('input', updateLabels);
+
+    resize();
+    requestAnimationFrame(animate);
+  })();
+  </script>
+</body>
+</html>
